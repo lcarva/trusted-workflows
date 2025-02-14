@@ -114,13 +114,27 @@ jobs:
         REF: >-
           ${{ inputs.image-registry }}/${{ inputs.image-repository }}@${{ steps.push-image.outputs.digest }}
 
-    # # TODO: This doesn't actually link the attestation with the subject in the registry :/
-    # - name: Generate artifact attestation
-    #   uses: actions/attest-build-provenance@v2
-    #   with:
-    #     subject-name: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_REPO }}
-    #     subject-digest: ${{ steps.push-image.outputs.digest }}
-    #     push-to-registry: true
+    - name: Generate artifact attestation
+      id: attestation
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-name: ${{ inputs.image-registry }}/${{ inputs.image-repository }}
+        subject-digest: ${{ steps.push-image.outputs.digest }}
+
+    # TODO: Hack to facilitate verification until https://github.com/sigstore/cosign/pull/3889
+    - name: Attach attestation
+      run: |
+        #!/bin/bash
+        set -euo pipefail
+
+        PREDICATE_TYPE="$(< "${BUNDLE_PATH}" jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType')"
+        < "${BUNDLE_PATH}" jq '.dsseEnvelope.payload | @base64d | fromjson | .predicate' > predicate.json
+
+        cosign attest --yes --predicate predicate.json --type "${PREDICATE_TYPE}" "${REF}"
+      env:
+        BUNDLE_PATH: ${{ steps.attestation.outputs.bundle-path }}
+        REF: >-
+          ${{ inputs.image-registry }}/${{ inputs.image-repository }}@${{ steps.push-image.outputs.digest }}
 
     # container:
     #   image: quay.io/redhat-appstudio/rhtap-task-runner:1.3
