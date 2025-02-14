@@ -57,17 +57,25 @@ jobs:
       image-digest: ${{ steps.push-image.outputs.digest }}
 
     runs-on: ubuntu-24.04
+
+    permissions:
+      # Needed for signing the container image with GitHub OIDC Token
+      id-token: write
+      contents: read
+      attestations: write
+      packages: write
+
     steps:
     - uses: actions/checkout@v4
       with:
         repository: ${{ inputs.git-url }}
         ref: ${{ inputs.git-commit }}
 
-    # - name: Install Cosign
-    #   uses: sigstore/cosign-installer@main
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@main
 
-    # - name: Install Syft
-    #   uses: anchore/sbom-action/download-syft@v0.18.0
+    - name: Install Syft
+      uses: anchore/sbom-action/download-syft@v0.18.0
 
     - name: Log in to registry
       uses: redhat-actions/podman-login@v1
@@ -92,17 +100,19 @@ jobs:
         image: ${{ inputs.image-repository }}
         tags: ${{ steps.build-image.outputs.tags }}
 
-    # - name: Sign image with GitHub OIDC Token
-    #   run: cosign sign --yes ${IMAGE_REGISTRY}/${IMAGE_REPO}@${DIGEST}
-    #   env:
-    #     DIGEST: ${{ steps.push-image.outputs.digest }}
+    - name: Sign image with GitHub OIDC Token
+      run: cosign sign --yes ${REF}
+      env:
+        REF: >-
+          ${{ inputs.image-registry }}/${{ inputs.image-repository }}@${{ steps.push-image.outputs.digest }}
 
-    # - name: Generate and store SBOM
-    #   run: |
-    #       syft "${IMAGE_REGISTRY}/${IMAGE_REPO}@${DIGEST}" -o spdx-json=sbom-spdx.json
-    #       cosign attest --yes --predicate sbom-spdx.json --type spdx "${IMAGE_REGISTRY}/${IMAGE_REPO}@${DIGEST}"
-    #   env:
-    #     DIGEST: ${{ steps.push-image.outputs.digest }}
+    - name: Generate and store SBOM
+      run: |
+          syft "${REF}" -o spdx-json=sbom-spdx.json
+          cosign attest --yes --predicate sbom-spdx.json --type spdx "${REF}"
+      env:
+        REF: >-
+          ${{ inputs.image-registry }}/${{ inputs.image-repository }}@${{ steps.push-image.outputs.digest }}
 
     # # TODO: This doesn't actually link the attestation with the subject in the registry :/
     # - name: Generate artifact attestation
